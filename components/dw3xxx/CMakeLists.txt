@@ -1,6 +1,6 @@
 set(root "${CMAKE_CURRENT_LIST_DIR}/upstream")
 if(NOT EXISTS "${root}/dwt_uwb_driver/deca_device_api.h")
-    message(FATAL_ERROR "Missing pinned driver. Run python tools/fetch_driver.py")
+    message(FATAL_ERROR "Missing pinned Qorvo driver source at components/dw3xxx/upstream. Restore the vendored driver files from the repository.")
 endif()
 idf_component_register(SRCS "hal.c"
     "${root}/dwt_uwb_driver/deca_interface.c"
