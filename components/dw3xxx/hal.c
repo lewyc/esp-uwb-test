@@ -8,7 +8,7 @@
 
 static spi_device_handle_t spi;
 static TaskHandle_t radio_owner;
-static uint8_t tx[6200], rx[6200];
+static uint8_t tx[6200];
 static spi_device_interface_config_t dev = {
     .mode=0, .clock_speed_hz=2000000, .queue_size=1,
     .spics_io_num=CONFIG_UWB_SPI_CS,
@@ -25,24 +25,38 @@ static void speed(int hz) {
 }
 static void slow(void) { speed(2000000); }
 void uwb_hal_fast(void) { speed(CONFIG_UWB_SPI_MHZ*1000000); }
-static int32_t transfer(uint16_t hn, const uint8_t *h, uint16_t n,
-                        const uint8_t *body, uint8_t *out, bool crc, uint8_t c) {
+static int32_t write_transfer(uint16_t hn, const uint8_t *h, uint16_t n,
+                              const uint8_t *body, bool crc, uint8_t c) {
     size_t len=hn+n+(crc?1:0);
     if(len>sizeof(tx)) return DWT_ERROR;
     memset(tx,0,len); memcpy(tx,h,hn);
     if(body) memcpy(tx+hn,body,n);
     if(crc) tx[len-1]=c;
-    spi_transaction_t t={.length=len*8,.tx_buffer=tx,.rx_buffer=rx};
-    if(spi_device_polling_transmit(spi,&t)!=ESP_OK) return DWT_ERROR;
-    if(out) memcpy(out,rx+hn,n);
-    return DWT_SUCCESS;
+    spi_device_acquire_bus(spi,portMAX_DELAY);
+    spi_transaction_t t={.length=len*8,.tx_buffer=tx};
+    esp_err_t rc=spi_device_polling_transmit(spi,&t);
+    spi_device_release_bus(spi);
+    return rc==ESP_OK?DWT_SUCCESS:DWT_ERROR;
 }
-static int32_t rd(uint16_t hn,uint8_t *h,uint16_t n,uint8_t *b) { return transfer(hn,h,n,NULL,b,false,0); }
-static int32_t wr(uint16_t hn,const uint8_t *h,uint16_t n,const uint8_t *b) { return transfer(hn,h,n,b,NULL,false,0); }
-static int32_t wc(uint16_t hn,const uint8_t *h,uint16_t n,const uint8_t *b,uint8_t c) { return transfer(hn,h,n,b,NULL,true,c); }
+static int32_t rd(uint16_t hn,uint8_t *h,uint16_t n,uint8_t *b) {
+    spi_device_acquire_bus(spi,portMAX_DELAY);
+    spi_transaction_t header={.flags=SPI_TRANS_CS_KEEP_ACTIVE,.length=hn*8,.tx_buffer=h};
+    spi_transaction_t body={.length=n*8,.rxlength=n*8,.rx_buffer=b};
+    esp_err_t rc=spi_device_polling_transmit(spi,&header);
+    if(rc==ESP_OK) rc=spi_device_polling_transmit(spi,&body);
+    spi_device_release_bus(spi);
+    return rc==ESP_OK?DWT_SUCCESS:DWT_ERROR;
+}
+static int32_t wr(uint16_t hn,const uint8_t *h,uint16_t n,const uint8_t *b) { return write_transfer(hn,h,n,b,false,0); }
+static int32_t wc(uint16_t hn,const uint8_t *h,uint16_t n,const uint8_t *b,uint8_t c) { return write_transfer(hn,h,n,b,true,c); }
 void wakeup_device_with_io(void) {
     gpio_set_level(CONFIG_UWB_WAKEUP,1); esp_rom_delay_us(600);
     gpio_set_level(CONFIG_UWB_WAKEUP,0); vTaskDelay(pdMS_TO_TICKS(3));
+}
+int32_t uwb_hal_probe_device_id(uint8_t out[4]) {
+    uint8_t addr=0;
+    wakeup_device_with_io();
+    return rd(1,&addr,4,out);
 }
 /* All driver calls are owned by one task; IRQ never touches driver or SPI. */
 decaIrqStatus_t decamutexon(void) { configASSERT(xTaskGetCurrentTaskHandle()==radio_owner); return 0; }

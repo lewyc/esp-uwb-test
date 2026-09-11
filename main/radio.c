@@ -25,6 +25,7 @@ static int channel=5, ant_delay=16385;
 static uint8_t frame_seq=0;
 static uint32_t last_packet[256];
 static uint32_t packet_duplicates=0,packet_count=0,rx_errors=0;
+static uint32_t probe_raw_id=0; static int32_t probe_raw_rc=DWT_ERROR;
 static uint64_t last_cir_us=0;
 static double cir_hz=0;
 static const char *last_error="ok";
@@ -99,6 +100,8 @@ static void diagnostics(cJSON *j) {
 }
 static bool initialise(void) {
     ready=false;uwb_hal_reset();
+    uint8_t raw[4]={0}; probe_raw_rc=uwb_hal_probe_device_id(raw);
+    probe_raw_id=(uint32_t)raw[0]|((uint32_t)raw[1]<<8)|((uint32_t)raw[2]<<16)|((uint32_t)raw[3]<<24);
     if(dwt_probe(&uwb_probe)!=DWT_SUCCESS) { last_error="probe_failed";return false; }
     int64_t end=esp_timer_get_time()+100000;
     while(!dwt_checkidlerc() && esp_timer_get_time()<end)vTaskDelay(1);
@@ -243,7 +246,7 @@ void radio_task(void *unused) {
     if(!math_ok)last_error="twr_math_selftest_failed";
     else if(rc==ESP_OK)initialise();else last_error="invalid_pin_or_spi_config";
     cJSON *e=event_new("radio_boot");str(e,"status",ready?"ok":last_error);
-    cJSON_AddBoolToObject(e,"twr_math_selftest",math_ok);emit(e);
+    cJSON_AddBoolToObject(e,"twr_math_selftest",math_ok);num(e,"probe_raw_rc",probe_raw_rc);num(e,"probe_raw_id",probe_raw_id);emit(e);
     while(1) {
         cJSON *j=NULL;
         if(xQueueReceive(commands,&j,0)==pdTRUE) {handle(j);cJSON_Delete(j);}
