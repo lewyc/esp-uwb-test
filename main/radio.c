@@ -26,6 +26,8 @@ static uint8_t frame_seq=0;
 static uint32_t last_packet[256];
 static uint32_t packet_duplicates=0,packet_count=0,rx_errors=0;
 static uint32_t probe_raw_id=0; static int32_t probe_raw_rc=DWT_ERROR;
+static uint32_t probe_ids[3]={0};static int probe_attempts=0;
+static int probe_reset=-1,probe_irq=-1,probe_miso=-1,probe_cs=-1;
 static uint64_t last_cir_us=0;
 static double cir_hz=0;
 static const char *last_error="ok";
@@ -99,10 +101,23 @@ static void diagnostics(cJSON *j) {
     }
 }
 static bool initialise(void) {
-    ready=false;uwb_hal_reset();
-    uint8_t raw[4]={0}; probe_raw_rc=uwb_hal_probe_device_id(raw);
-    probe_raw_id=(uint32_t)raw[0]|((uint32_t)raw[1]<<8)|((uint32_t)raw[2]<<16)|((uint32_t)raw[3]<<24);
-    if(dwt_probe(&uwb_probe)!=DWT_SUCCESS) { last_error="probe_failed";return false; }
+    ready=false;probe_attempts=0;memset(probe_ids,0,sizeof(probe_ids));
+    if(!uwb_hal_reset()) {uwb_hal_pin_levels(&probe_reset,&probe_irq,&probe_miso,&probe_cs);last_error="reset_stuck_low";return false;}
+    for(int i=0;i<3;i++) {
+        uint8_t raw[4]={0};probe_raw_rc=uwb_hal_probe_device_id(raw);
+        probe_raw_id=(uint32_t)raw[0]|((uint32_t)raw[1]<<8)|((uint32_t)raw[2]<<16)|((uint32_t)raw[3]<<24);
+        probe_ids[i]=probe_raw_id;probe_attempts=i+1;
+        if(probe_raw_rc==DWT_SUCCESS&&probe_raw_id==0xdeca0302)break;
+        vTaskDelay(pdMS_TO_TICKS(2));
+    }
+    uwb_hal_pin_levels(&probe_reset,&probe_irq,&probe_miso,&probe_cs);
+    if(dwt_probe(&uwb_probe)!=DWT_SUCCESS) {
+        if(probe_raw_rc!=DWT_SUCCESS)last_error="probe_spi_io_failed";
+        else if(probe_raw_id==0)last_error="probe_miso_held_low";
+        else if(probe_raw_id==UINT32_MAX)last_error="probe_miso_open_or_high";
+        else last_error="probe_unexpected_id";
+        return false;
+    }
     int64_t end=esp_timer_get_time()+100000;
     while(!dwt_checkidlerc() && esp_timer_get_time()<end)vTaskDelay(1);
     if(!dwt_checkidlerc() || dwt_initialise(DWT_DW_INIT)!=DWT_SUCCESS) { last_error="initialise_failed";return false; }
@@ -246,7 +261,18 @@ void radio_task(void *unused) {
     if(!math_ok)last_error="twr_math_selftest_failed";
     else if(rc==ESP_OK)initialise();else last_error="invalid_pin_or_spi_config";
     cJSON *e=event_new("radio_boot");str(e,"status",ready?"ok":last_error);
-    cJSON_AddBoolToObject(e,"twr_math_selftest",math_ok);num(e,"probe_raw_rc",probe_raw_rc);num(e,"probe_raw_id",probe_raw_id);emit(e);
+#if CONFIG_UWB_BOARD_XIAO
+    str(e,"board","xiao_esp32s3");
+#else
+    str(e,"board","esp32s3_devkitc");
+#endif
+    cJSON *pins=cJSON_AddObjectToObject(e,"pins");num(pins,"clk",CONFIG_UWB_SPI_CLK);num(pins,"miso",CONFIG_UWB_SPI_MISO);
+    num(pins,"mosi",CONFIG_UWB_SPI_MOSI);num(pins,"cs",CONFIG_UWB_SPI_CS);num(pins,"irq",CONFIG_UWB_IRQ);
+    num(pins,"reset",CONFIG_UWB_RESET);num(pins,"wakeup",CONFIG_UWB_WAKEUP);num(e,"probe_spi_hz",2000000);
+    cJSON_AddBoolToObject(e,"twr_math_selftest",math_ok);num(e,"probe_raw_rc",probe_raw_rc);num(e,"probe_raw_id",probe_raw_id);
+    num(e,"probe_attempts",probe_attempts);cJSON *ids=cJSON_AddArrayToObject(e,"probe_ids");
+    for(int i=0;i<probe_attempts;i++)cJSON_AddItemToArray(ids,cJSON_CreateNumber(probe_ids[i]));
+    cJSON *levels=cJSON_AddObjectToObject(e,"pin_levels");num(levels,"reset",probe_reset);num(levels,"irq",probe_irq);num(levels,"miso_idle",probe_miso);num(levels,"cs_idle",probe_cs);emit(e);
     while(1) {
         cJSON *j=NULL;
         if(xQueueReceive(commands,&j,0)==pdTRUE) {handle(j);cJSON_Delete(j);}

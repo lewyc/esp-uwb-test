@@ -67,13 +67,25 @@ extern const struct dwt_driver_s dw3000_driver;
 static const struct dwt_spi_s ops={.readfromspi=rd,.writetospi=wr,.writetospiwithcrc=wc,.setslowrate=slow,.setfastrate=uwb_hal_fast};
 static const struct dwt_driver_s *drivers[]={&dw3000_driver};
 struct dwt_probe_s uwb_probe={.dw=NULL,.spi=(void*)&ops,.wakeup_device_with_io=wakeup_device_with_io,.driver_list=(struct dwt_driver_s**)drivers,.dw_driver_num=1};
-void uwb_hal_reset(void) {
+bool uwb_hal_reset(void) {
     gpio_set_level(CONFIG_UWB_RESET,0);
     gpio_set_direction(CONFIG_UWB_RESET,GPIO_MODE_OUTPUT_OD);
     vTaskDelay(pdMS_TO_TICKS(2));
     gpio_set_level(CONFIG_UWB_RESET,1); /* releases line; never drives high */
     gpio_set_direction(CONFIG_UWB_RESET,GPIO_MODE_INPUT);
-    vTaskDelay(pdMS_TO_TICKS(5));
+    /* RSTn is also a ready indication. The EVB/module pull-up must return it
+     * high after the open-drain reset is released. */
+    for(int i=0;i<20;i++) {
+        if(gpio_get_level(CONFIG_UWB_RESET)) { vTaskDelay(pdMS_TO_TICKS(2)); return true; }
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    return false;
+}
+void uwb_hal_pin_levels(int *reset, int *irq, int *miso, int *cs) {
+    if(reset)*reset=gpio_get_level(CONFIG_UWB_RESET);
+    if(irq)*irq=gpio_get_level(CONFIG_UWB_IRQ);
+    if(miso)*miso=gpio_get_level(CONFIG_UWB_SPI_MISO);
+    if(cs)*cs=gpio_get_level(CONFIG_UWB_SPI_CS);
 }
 esp_err_t uwb_hal_init(TaskHandle_t owner) {
     radio_owner=owner;
@@ -87,6 +99,9 @@ esp_err_t uwb_hal_init(TaskHandle_t owner) {
     ESP_ERROR_CHECK(gpio_config(&io)); gpio_set_level(CONFIG_UWB_WAKEUP,0);
     io=(gpio_config_t){.pin_bit_mask=1ULL<<CONFIG_UWB_IRQ,.mode=GPIO_MODE_INPUT,.intr_type=GPIO_INTR_POSEDGE};
     ESP_ERROR_CHECK(gpio_config(&io));
+    /* A weak pull-up gives a deterministic 0xffffffff read when MISO is open,
+     * making it distinguishable from a line held low. The DW3110 overrides it. */
+    ESP_ERROR_CHECK(gpio_set_pull_mode(CONFIG_UWB_SPI_MISO,GPIO_PULLUP_ONLY));
     ESP_ERROR_CHECK(gpio_install_isr_service(0));
     ESP_ERROR_CHECK(gpio_isr_handler_add(CONFIG_UWB_IRQ,irq,NULL));
     spi_bus_config_t bus={.mosi_io_num=CONFIG_UWB_SPI_MOSI,.miso_io_num=CONFIG_UWB_SPI_MISO,.sclk_io_num=CONFIG_UWB_SPI_CLK,.quadwp_io_num=-1,.quadhd_io_num=-1,.max_transfer_sz=sizeof(tx)};

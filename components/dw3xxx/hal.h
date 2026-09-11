@@ -4,7 +4,8 @@
 #include "freertos/task.h"
 #include "deca_device_api.h"
 esp_err_t uwb_hal_init(TaskHandle_t owner);
-void uwb_hal_reset(void);
+bool uwb_hal_reset(void);
 void uwb_hal_fast(void);
 int32_t uwb_hal_probe_device_id(uint8_t out[4]);
+void uwb_hal_pin_levels(int *reset, int *irq, int *miso, int *cs);
 extern struct dwt_probe_s uwb_probe;
