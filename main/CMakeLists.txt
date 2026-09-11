@@ -1,0 +1,1 @@
+idf_component_register(SRCS "app.c" "radio.c" "transport.c" INCLUDE_DIRS "." REQUIRES dw3xxx espressif__cjson nvs_flash esp_wifi esp_netif esp_event esp_timer esp_driver_usb_serial_jtag esp_driver_uart esp_app_format)

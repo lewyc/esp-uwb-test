@@ -1,0 +1,35 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "ESP-IDF: Build XIAO",
+      "type": "shell",
+      "command": "idf.py",
+      "args": ["-B", "build-xiao", "-D", "SDKCONFIG=sdkconfig.xiao", "-D", "SDKCONFIG_DEFAULTS=sdkconfig.defaults;profiles/xiao.defaults", "build"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "ESP-IDF: Build DevKitC UART",
+      "type": "shell",
+      "command": "idf.py",
+      "args": ["-B", "build-devkitc", "-D", "SDKCONFIG=sdkconfig.devkitc", "-D", "SDKCONFIG_DEFAULTS=sdkconfig.defaults;profiles/devkitc.defaults;profiles/uart.defaults", "build"],
+      "options": {"cwd": "${workspaceFolder}"},
+      "problemMatcher": ["$gcc"]
+    },
+    {
+      "label": "Host: Test",
+      "type": "shell",
+      "command": "python",
+      "args": ["-m", "unittest", "discover", "-s", "tests", "-v"],
+      "options": {"cwd": "${workspaceFolder}"}
+    },
+    {
+      "label": "Host: Wizard",
+      "type": "shell",
+      "command": "python",
+      "args": ["tools/uwb_test.py", "wizard"],
+      "options": {"cwd": "${workspaceFolder}"}
+    }
+  ]
+}

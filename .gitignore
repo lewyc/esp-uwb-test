@@ -1,0 +1,64 @@
+# ESP-IDF build output and generated configuration
+/build/
+/build-*/
+/sdkconfig*
+!/sdkconfig.defaults
+/managed_components/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/compile_commands.json
+/ninja_log
+/.ninja_deps
+/.ninja_log
+
+# Experiment output (may contain large CIR captures and local metadata)
+/logs/
+
+# Python environments, caches, packages and coverage
+/.venv/
+/venv/
+/env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+/.pytest_cache/
+/.mypy_cache/
+/.ruff_cache/
+/.coverage
+/coverage.xml
+/htmlcov/
+/dist/
+
+# Local credentials and machine-specific configuration
+.env
+.env.*
+!.env.example
+local*.json
+credentials*.json
+secrets*.json
+wifi*.json
+*.pem
+*.key
+
+# Keep shared VS Code tasks, ignore per-machine editor settings
+/.vscode/*
+!/.vscode/tasks.json
+!/.vscode/extensions.json
+/.idea/
+
+# Temporary/editor and operating-system files
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# The Qorvo source snapshot is vendored; its nested repository metadata is not
+/components/dw3xxx/upstream/.git/

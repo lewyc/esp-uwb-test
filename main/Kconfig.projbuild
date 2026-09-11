@@ -1,0 +1,38 @@
+menu "UWB test suite"
+choice UWB_BOARD
+    prompt "Board profile"
+    default UWB_BOARD_XIAO
+config UWB_BOARD_XIAO
+    bool "XIAO ESP32-S3 (camera/SD unused)"
+config UWB_BOARD_DEVKITC
+    bool "ESP32-S3 DevKitC"
+endchoice
+config UWB_SPI_CLK
+    int "SPI CLK GPIO"
+    default 7
+config UWB_SPI_MISO
+    int "SPI MISO GPIO"
+    default 8
+config UWB_SPI_MOSI
+    int "SPI MOSI GPIO"
+    default 9
+config UWB_SPI_CS
+    int "SPI CS GPIO"
+    default 4
+config UWB_IRQ
+    int "IRQ GPIO"
+    default 5
+config UWB_RESET
+    int "Open drain RSTn GPIO"
+    default 6
+config UWB_WAKEUP
+    int "WAKEUP GPIO"
+    default 2
+config UWB_SPI_MHZ
+    int "Operating SPI MHz"
+    range 2 16
+    default 8
+config DW3000_CHIP_DW3000
+    bool
+    default y
+endmenu

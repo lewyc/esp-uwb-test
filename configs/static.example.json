@@ -1,0 +1,11 @@
+{
+  "stage": "static",
+  "endpoints": ["serial:COM6", "tcp:192.168.1.52:8765"],
+  "channel": 5,
+  "antenna_delay": 16385,
+  "attempts": 1000,
+  "rate_hz": 10,
+  "cir_hz": 0,
+  "distances_m": [0.5, 1, 2, 3, 5, 8, 10]
+}
+
