@@ -118,9 +118,16 @@ static bool initialise(void) {
         else last_error="probe_unexpected_id";
         return false;
     }
+    /*
+     * dwt_checkidlerc() is not safe before dwt_initialise(): the DW3000
+     * driver allocates/attaches its private state from dwt_initialise(), and
+     * the idle check dereferences that state. Calling it first caused the
+     * DevKitC LoadProhibited panic seen during boot.
+     */
+    if(dwt_initialise(DWT_DW_INIT)!=DWT_SUCCESS) { last_error="initialise_failed";return false; }
     int64_t end=esp_timer_get_time()+100000;
     while(!dwt_checkidlerc() && esp_timer_get_time()<end)vTaskDelay(1);
-    if(!dwt_checkidlerc() || dwt_initialise(DWT_DW_INIT)!=DWT_SUCCESS) { last_error="initialise_failed";return false; }
+    if(!dwt_checkidlerc()) { last_error="idle_check_failed";return false; }
     if(dwt_readdevid()!=0xdeca0302) { last_error="unexpected_device";return false; }
     uwb_hal_fast();phy.chan=channel;
     if(dwt_configure(&phy)!=DWT_SUCCESS) {last_error="configure_failed";return false;}
