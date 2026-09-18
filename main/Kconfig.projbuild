@@ -27,6 +27,7 @@ config UWB_RESET
     default 6
 config UWB_WAKEUP
     int "WAKEUP GPIO"
+    range -1 48
     default 2
 config UWB_SPI_MHZ
     int "Operating SPI MHz"

@@ -4,16 +4,18 @@ Stop and verify the EVB header labels and J1 jumper before applying power. The t
 
 ## Signal wiring
 
-| DWM3000EVB signal | ESP32-S3 GPIO | XIAO label | Direction at ESP32 |
-|---|---:|---|---|
-| SPI CLK | 7 | D8 | output |
-| SPI MISO | 8 | D9 | input |
-| SPI MOSI | 9 | D10 | output |
-| SPI CSn | 4 | D3 | output |
-| IRQ | 5 | D4 | input |
-| RSTn | 6 | D5 | open-drain output/input |
-| WAKEUP | 2 | D1 | output |
+| DWM3000EVB signal | XIAO ESP32-S3 | ESP32-S3 DevKitC | Direction at ESP32 |
+|---|---|---|---|
+| SPI CLK | D8 / GPIO7 | GPIO7 | output |
+| SPI MISO | D9 / GPIO8 | GPIO8 | input |
+| SPI MOSI | D10 / GPIO9 | GPIO9 | output |
+| SPI CSn | D7 / GPIO44 | GPIO4 | output |
+| IRQ | D0 / GPIO1 | GPIO5 | input |
+| RSTn | D1 / GPIO2 | GPIO6 | open-drain output/input |
+| WAKEUP | **unconnected** | GPIO2 | output, except XIAO |
 | GND | GND | GND | power return |
+
+For the XIAO, the firmware uses a CS-based wake-up sequence because no separate WAKEUP GPIO is available. Leave the EVB WAKEUP pin unconnected; do not jumper it to another XIAO pin.
 
 For loose jumper wires, use the signal names printed beside the headers. In the guide's top-down view (antenna at the top), `CON1` is the right-side SPI header. From top to bottom it is: `NC`, `TCXO_EN` (reserved), `NC`, `GND`, `SPI CLK`, `SPI MISO`, `SPI MOSI`, `SPI CSn`, `WAKEUP`, `IRQ`. `RSTn` is the top pin of the adjacent `CON4` header. Do not mirror this order when viewing the underside.
 
@@ -21,14 +23,14 @@ Do not connect reserved EVB signals. Keep the SPI leads short and route ground b
 
 ## Power and J1
 
-The EVB has two mutually exclusive 3.3 V paths selected by J1:
+The EVB has two mutually exclusive 3.3 V paths selected by J1. For the current ESP32 bench wiring, install the J1 bridge across the **top two pins: `3V3_Arduino` and the middle/common pin**. Leave the lower `3V3_DC/DC` pin unbridged.
 
-| J1 silkscreen selection | Bench wiring |
+| J1 bridge | Bench wiring |
 |---|---|
-| `3V3 Arduino` | ESP32 `3V3` to EVB `CON2 3V3` |
-| `3V3 DC/DC` | ESP32/USB `5V` to EVB `CON2 5V`; the EVB regulator creates 3.3 V |
+| `3V3_Arduino` + middle/common (top two pins) | ESP32 `3V3` to the **fourth port of EVB `CON2`**, labelled `3V3` input |
+| `3V3_DC/DC` + middle/common (lower two pins) | ESP32/USB `5V` to EVB `CON2 5V`; the EVB regulator creates 3.3 V |
 
-Never connect both the 3.3 V and 5 V supply paths. Select J1 by its PCB label, not by an assumed upper/lower or pin-number orientation. With power removed, confirm continuity from the selected J1 path to the expected supply pin. Power one ESP32/EVB pair first and measure approximately 3.3 V between `CON2 3V3` and `GND` before connecting signal wires or more nodes.
+Never connect both supply paths. For this setup, use the labelled top-two-pin `3V3_Arduino` bridge and connect the ESP32 `3V3` output to the **fourth `CON2` port on the EVB, labelled `3V3` input**. Select J1 by its PCB label, not by an assumed orientation. With power removed, confirm the bridge is between `3V3_Arduino` and the middle/common pin. Power one ESP32/EVB pair first and measure approximately 3.3 V between the `CON2` `3V3` input and `GND` before connecting signal wires or more nodes.
 
 ## Connector orientation check
 
@@ -56,6 +58,6 @@ The XIAO and DevKitC expose these GPIO numbers differently, but firmware profile
 
 ## Console choices
 
-- XIAO: default USB Serial/JTAG console through its native USB connector.
+- XIAO: default USB Serial/JTAG console through its native USB connector. Its CSn is GPIO44/D7; keep the EVB WAKEUP pin unconnected because wake-up is performed through CS.
 - DevKitC: `profiles/uart.defaults` selects UART0 at 115200 baud for boards whose USB-to-UART connector is being used.
 - A DevKitC with native USB connected can instead use the base defaults and USB Serial/JTAG.

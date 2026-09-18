@@ -50,8 +50,15 @@ static int32_t rd(uint16_t hn,uint8_t *h,uint16_t n,uint8_t *b) {
 static int32_t wr(uint16_t hn,const uint8_t *h,uint16_t n,const uint8_t *b) { return write_transfer(hn,h,n,b,false,0); }
 static int32_t wc(uint16_t hn,const uint8_t *h,uint16_t n,const uint8_t *b,uint8_t c) { return write_transfer(hn,h,n,b,true,c); }
 void wakeup_device_with_io(void) {
+#if CONFIG_UWB_WAKEUP < 0
+    /* XIAO Sense has no spare GPIO for WAKEUP. The DW3xxx API explicitly
+     * permits CSn to be used as the wake-up IO instead. */
+    gpio_set_level(CONFIG_UWB_SPI_CS,0); esp_rom_delay_us(600);
+    gpio_set_level(CONFIG_UWB_SPI_CS,1); vTaskDelay(pdMS_TO_TICKS(3));
+#else
     gpio_set_level(CONFIG_UWB_WAKEUP,1); esp_rom_delay_us(600);
     gpio_set_level(CONFIG_UWB_WAKEUP,0); vTaskDelay(pdMS_TO_TICKS(3));
+#endif
 }
 int32_t uwb_hal_probe_device_id(uint8_t out[4]) {
     uint8_t addr=0;
@@ -91,12 +98,16 @@ esp_err_t uwb_hal_init(TaskHandle_t owner) {
     radio_owner=owner;
     const int pins[]={CONFIG_UWB_SPI_CLK,CONFIG_UWB_SPI_MISO,CONFIG_UWB_SPI_MOSI,CONFIG_UWB_SPI_CS,CONFIG_UWB_IRQ,CONFIG_UWB_RESET,CONFIG_UWB_WAKEUP};
     for(int i=0;i<7;i++) {
+        if(i==6 && pins[i]<0) continue;
         if(!GPIO_IS_VALID_GPIO(pins[i]) || (i!=1 && i!=4 && !GPIO_IS_VALID_OUTPUT_GPIO(pins[i]))) return ESP_ERR_INVALID_ARG;
         if(pins[i]==19 || pins[i]==20 || pins[i]==0 || pins[i]==45 || pins[i]==46 || (pins[i]>=26 && pins[i]<=37)) return ESP_ERR_INVALID_ARG;
-        for(int j=0;j<i;j++) if(pins[i]==pins[j]) return ESP_ERR_INVALID_ARG;
+        for(int j=0;j<i;j++) if(pins[j]>=0 && pins[i]==pins[j]) return ESP_ERR_INVALID_ARG;
     }
-    gpio_config_t io={.pin_bit_mask=1ULL<<CONFIG_UWB_WAKEUP,.mode=GPIO_MODE_OUTPUT};
+    gpio_config_t io;
+#if CONFIG_UWB_WAKEUP >= 0
+    io=(gpio_config_t){.pin_bit_mask=1ULL<<CONFIG_UWB_WAKEUP,.mode=GPIO_MODE_OUTPUT};
     ESP_ERROR_CHECK(gpio_config(&io)); gpio_set_level(CONFIG_UWB_WAKEUP,0);
+#endif
     io=(gpio_config_t){.pin_bit_mask=1ULL<<CONFIG_UWB_IRQ,.mode=GPIO_MODE_INPUT,.intr_type=GPIO_INTR_POSEDGE};
     ESP_ERROR_CHECK(gpio_config(&io));
     /* A weak pull-up gives a deterministic 0xffffffff read when MISO is open,

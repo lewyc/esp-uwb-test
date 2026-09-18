@@ -8,7 +8,19 @@ It is bench instrumentation only. It does not connect to PX4, control a drone, u
 
 Read [the wiring guide](docs/WIRING.md). Confirm the DWM3000EVB header orientation and J1 selection against the supplied Quick Start Guide with power removed. RSTn is open-drain: the ESP32 drives it low but never drives it high.
 
-Default signals are GPIO 7 CLK, 8 MISO, 9 MOSI, 4 CSn, 5 IRQ, 6 RSTn and 2 WAKEUP. All can be overridden in `menuconfig`.
+The board profiles use different control pins:
+
+| EVB signal | XIAO ESP32-S3 | ESP32-S3 DevKitC |
+|---|---|---|
+| SPI CLK | D8 / GPIO7 | GPIO7 |
+| SPI MISO | D9 / GPIO8 | GPIO8 |
+| SPI MOSI | D10 / GPIO9 | GPIO9 |
+| CSn | D7 / GPIO44 | GPIO4 |
+| IRQ | D0 / GPIO1 | GPIO5 |
+| RSTn | D1 / GPIO2 | GPIO6 |
+| WAKEUP | unconnected; CS-based wake-up | GPIO2 |
+
+On the XIAO, use the USB Serial/JTAG console. GPIO44 is also associated with UART0, so do not use the UART-console profile with this wiring. All pins can be overridden in `menuconfig`.
 
 ## Software setup
 
@@ -32,21 +44,23 @@ Default signals are GPIO 7 CLK, 8 MISO, 9 MOSI, 4 CSn, 5 IRQ, 6 RSTn and 2 WAKEU
 
 Run commands from this folder in an exported ESP-IDF 6.1-rc1 terminal.
 
+Use one exported ESP-IDF terminal per board. Replace `COM11` and `COM12` with the ports shown by your computer. The `-p` option keeps flashing and monitoring attached to the intended board when both are connected.
+
 XIAO ESP32-S3, native USB Serial/JTAG:
 
 ```powershell
 idf.py -B build-xiao -D SDKCONFIG=sdkconfig.xiao -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;profiles/xiao.defaults" build
-idf.py -B build-xiao -D SDKCONFIG=sdkconfig.xiao flash monitor
+idf.py -p COM11 -B build-xiao -D SDKCONFIG=sdkconfig.xiao flash monitor
 ```
 
-ESP32-S3 DevKitC using its USB-to-UART connector:
+DevKitC using its USB-to-UART connector:
 
 ```powershell
 idf.py -B build-devkitc -D SDKCONFIG=sdkconfig.devkitc -D "SDKCONFIG_DEFAULTS=sdkconfig.defaults;profiles/devkitc.defaults;profiles/uart.defaults" build
-idf.py -B build-devkitc -D SDKCONFIG=sdkconfig.devkitc flash monitor
+idf.py -p COM12 -B build-devkitc -D SDKCONFIG=sdkconfig.devkitc flash monitor
 ```
 
-Add `-p COM6` (using your actual port) to flash/monitor if automatic detection is ambiguous. The same actions are available under **Terminal > Run Task** in VS Code.
+Build is board-specific, but does not require a port. If you only want to monitor an already-flashed board, use `idf.py -p COM11 monitor` or `idf.py -p COM12 monitor`. The same actions are available under **Terminal > Run Task** in VS Code.
 
 The firmware fits a 4 MB flash partition layout and does not require PSRAM. It uses a slow SPI initialization clock and a conservative configurable operating clock for jumper leads.
 
