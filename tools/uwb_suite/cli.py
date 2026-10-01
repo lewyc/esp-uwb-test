@@ -16,6 +16,16 @@ def parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="DWM3000EVB test and logging suite")
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("wizard", help="interactive test selection")
+    calibrate = sub.add_parser("calibrate", help="guided multi-distance calibration")
+    calibrate.add_argument("endpoints", nargs=2, help="initiator and responder endpoints")
+    calibrate.add_argument("--channel", type=int, choices=(5, 9), default=5)
+    calibrate.add_argument("--attempts", type=int, default=1000)
+    calibrate.add_argument("--rate-hz", type=float, default=10)
+    calibrate.add_argument("--timestamp-mode",
+                           choices=("ipatov_adjusted", "standard_adjusted", "raw_unadjusted"),
+                           default="ipatov_adjusted")
+    calibrate.add_argument("--tx-delay", type=int, default=16385)
+    calibrate.add_argument("--rx-delay", type=int, default=16385)
     run = sub.add_parser("run", help="run a saved JSON configuration")
     run.add_argument("config", type=Path); run.add_argument("--compact", action="store_true")
     sim = sub.add_parser("simulate", help="exercise the complete host workflow without radios")
@@ -42,6 +52,15 @@ def main(argv: list[str] | None = None) -> int:
         password = getpass.getpass("Wi-Fi password (not saved): ")
         print(node.execute({"cmd": "provision", "ssid": args.ssid, "password": password})); node.close(); return 0
     if args.command == "wizard": config, simulate, interactive, compact = wizard()
+    elif args.command == "calibrate":
+        config = {"stage": "calibration", "endpoints": list(args.endpoints),
+                  "node_count": 2, "channel": args.channel, "attempts": args.attempts,
+                  "rate_hz": args.rate_hz, "timestamp_mode": args.timestamp_mode,
+                  "node_settings": {
+                      "1": {"tx_antenna_delay": args.tx_delay, "rx_antenna_delay": args.rx_delay},
+                      "2": {"tx_antenna_delay": args.tx_delay, "rx_antenna_delay": args.rx_delay},
+                  }}
+        simulate, interactive, compact = False, True, False
     elif args.command == "run":
         config = json.loads(args.config.read_text(encoding="utf-8")); simulate = bool(config.pop("simulate", False)); interactive = False; compact = args.compact
     else:
@@ -61,21 +80,44 @@ def main(argv: list[str] | None = None) -> int:
 
 def wizard() -> tuple[dict, bool, bool, bool]:
     print("\nESP32-S3 DWM3000EVB test wizard")
-    print("Stages: " + ", ".join(STAGES))
-    stage = _prompt("Stage", "static")
-    if stage not in STAGES: raise SystemExit(f"unknown stage {stage}")
-    simulated = _prompt("Use simulated nodes? [y/N]", "n").lower().startswith("y")
+    print("Stages (enter a number or the full stage name):")
+    for number, name in enumerate(STAGES, start=1):
+        print(f"  {number:2d}. {name}")
+    print("Defaults are shown in [brackets]; press Enter to accept one.")
+    stage_value = _prompt("Stage number/name", str(STAGES.index("static") + 1)).lower()
+    if stage_value.isdigit():
+        stage_number = int(stage_value)
+        if 1 <= stage_number <= len(STAGES):
+            stage = STAGES[stage_number - 1]
+        else:
+            raise SystemExit(f"unknown stage number {stage_number}; choose 1-{len(STAGES)}")
+    else:
+        stage = stage_value
+        if stage not in STAGES: raise SystemExit(f"unknown stage {stage}")
+    simulated = _prompt("Use simulated nodes? (y/n)", "n").lower().startswith("y")
     required = 5 if stage == "anchors" else 2
     if simulated:
         count = int(_prompt("Number of simulated nodes", str(required))); endpoints = []
     else:
-        endpoints = [x.strip() for x in _prompt("Endpoints, comma separated (serial:COM6 or tcp:IP:8765)").split(",") if x.strip()]
+        endpoints = [x.strip() for x in _prompt("Endpoints, comma separated (serial:COM11,serial:COM12)").split(",") if x.strip()]
         count = len(endpoints)
     config = {"stage": stage, "endpoints": endpoints, "node_count": count,
-              "channel": int(_prompt("UWB channel [5/9]", "5")),
+              "channel": int(_prompt("UWB channel (5 or 9)", "5")),
               "attempts": int(_prompt("Attempts per station", "1000")),
-              "rate_hz": float(_prompt("Attempt rate (Hz)", "10")), "cir_hz": float(_prompt("CIR capture rate (0-10 Hz)", "0"))}
+              "rate_hz": float(_prompt("Attempt rate (Hz)", "10")),
+              "cir_hz": float(_prompt("CIR capture rate (0-10 Hz)", "0")),
+              "timestamp_mode": _prompt(
+                  "RX timestamp mode (ipatov_adjusted/standard_adjusted/raw_unadjusted)",
+                  "ipatov_adjusted")}
+    tx_delay = int(_prompt("TX antenna delay (device time units)", "16385"))
+    rx_delay = int(_prompt("RX antenna delay (device time units)", "16385"))
+    config["node_settings"] = {str(index): {"tx_antenna_delay": tx_delay,
+                                            "rx_antenna_delay": rx_delay}
+                               for index in range(1, count + 1)}
     if stage == "static": config["distances_m"] = _floats(_prompt("Distances in metres", "0.5,1,2,3,5,8,10"))
+    elif stage == "calibration":
+        print("Station distances, uncertainty, labels, fit/validation roles and warm-up samples")
+        print("will be requested one station at a time after both nodes are verified.")
     elif stage in ("range", "orientation", "nlos", "coexistence"):
         config["true_distance_m"] = float(_prompt("True antenna-to-antenna distance (m)", "1"))
     elif stage == "orientation": config["orientations_deg"] = _floats(_prompt("Orientations (degrees)", "0,90,180"))

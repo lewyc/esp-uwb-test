@@ -2,6 +2,20 @@
 
 All sessions below are pending until performed with the physical boards. Record the operator, antenna-to-antenna ground truth, supply arrangement, environment and photos in run annotations.
 
+## Calibration and timestamp-mode acceptance
+
+- [ ] Same updated firmware build flashed to both nodes
+- [ ] At least three surveyed fitting distances and one held-out validation distance
+- [ ] Distances measured between repeatable antenna reference points
+- [ ] Warm-up and failed attempts retained and counted
+- [ ] Identical fixture repeated with Ipatov-adjusted, standard-adjusted and raw modes
+- [ ] Deliberately mismatched modes fail rather than return a mixed-mode range
+- [ ] USB and Wi-Fi runs compare end-to-end interval separately from RF exchange time
+- [ ] Disposable disconnect/reconnect run leaves readable partial files and gap events
+
+Simulation and successful compilation do not pass RF accuracy, calibration quality,
+timestamp-mode superiority, filter effectiveness or disconnect recovery on hardware.
+
 ## A. One-node electrical and identity check
 
 - [ ] J1 and connector orientation independently checked
@@ -48,4 +62,3 @@ All sessions below are pending until performed with the physical boards. Record 
 - [ ] Ctrl+C leaves readable partial logs
 
 Acceptance thresholds are deliberately not hard-coded. Establish distributions first, then set project thresholds using SAFMC geometry, update-rate needs and observed failure modes.
-

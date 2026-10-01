@@ -1,0 +1,24 @@
+{
+  "stage": "calibration",
+  "simulate": true,
+  "node_count": 2,
+  "channel": 5,
+  "rate_hz": 10,
+  "timestamp_mode": "ipatov_adjusted",
+  "cir_hz": 0,
+  "node_settings": {
+    "1": {"tx_antenna_delay": 16385, "rx_antenna_delay": 16385},
+    "2": {"tx_antenna_delay": 16385, "rx_antenna_delay": 16385}
+  },
+  "calibration_stations": [
+    {"station_id": 1, "station_label": "fit-1m", "true_distance_m": 1.0,
+     "distance_uncertainty_m": 0.005, "fit_role": "fit", "attempts": 100,
+     "warmup_attempts": 10, "notes": "Fixed antenna orientation"},
+    {"station_id": 2, "station_label": "fit-3m", "true_distance_m": 3.0,
+     "distance_uncertainty_m": 0.005, "fit_role": "fit", "attempts": 100,
+     "warmup_attempts": 10, "notes": "Fixed antenna orientation"},
+    {"station_id": 3, "station_label": "validation-2m", "true_distance_m": 2.0,
+     "distance_uncertainty_m": 0.005, "fit_role": "validation", "attempts": 100,
+     "warmup_attempts": 10, "notes": "Held out from fitting"}
+  ]
+}

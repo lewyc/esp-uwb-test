@@ -9,7 +9,7 @@ USB and TCP port 8765 carry the same version-1 newline-delimited JSON protocol. 
 | `hello` | — | Firmware, driver, board, pin, radio and Wi-Fi information |
 | `health` | — | Device ID, initialization state, counters and diagnostic support |
 | `reset` | — | Hardware reset followed by radio reinitialization |
-| `configure` | `node`, `channel`, `antenna_delay`, `cir_hz` | Save node/radio configuration in NVS and apply it |
+| `configure` | `node`, `channel`, `antenna_delay`, `tx_antenna_delay`, `rx_antenna_delay`, `timestamp_mode`, `cir_hz` | Save node/radio configuration in NVS and apply it |
 | `listen` | — | Enter responder and packet-receiver operation |
 | `range` | `peer` | Execute one four-message double-sided TWR exchange |
 | `packet` | `peer` | Send one numbered packet |
@@ -19,10 +19,21 @@ USB and TCP port 8765 carry the same version-1 newline-delimited JSON protocol. 
 
 Every command produces an acknowledgement. Measurement failures are measurement records too, with a status such as `timeout`, so failed attempts remain in the denominator.
 
+The legacy `antenna_delay` field remains supported and supplies both TX and RX
+delays when their separate fields are absent. New hosts send both explicit fields.
+Valid timestamp modes are `ipatov_adjusted`, `standard_adjusted` and
+`raw_unadjusted`. Configure acknowledgements report the applied values.
+
+The timestamp mode is encoded in each DS-TWR frame. A receiver rejects a frame
+whose mode does not match its own configuration, preventing one exchange from
+silently combining timestamps with different semantics.
+
 ## Timing rules
 
 - `device_us`: ESP32 monotonic timestamp.
 - DS-TWR fields: raw DW3110 40-bit TX/RX timestamps and an exchange duration.
+- Every successful measurement records `timestamp_mode`, `timestamps_dtu`,
+  `tx_antenna_delay` and `rx_antenna_delay`.
 - `host_time_s` and `host_time_iso`: laptop receipt time added by the logger.
 - Host arrival time is not interpreted as RF time or one-way network latency.
 - The driver handles 40-bit timestamp arithmetic; host tests cover wrap-safe synthetic calculations.
@@ -30,4 +41,3 @@ Every command produces an acknowledgement. Measurement failures are measurement 
 ## Diagnostics
 
 Events expose available receive power, first-path power/index, accumulator count, clock offset, status bits, temperature, supply-voltage estimate and STS quality. Fields unsupported by the active DW3110 configuration are emitted as JSON `null` rather than silently replaced by zero. Optional CIR samples are hex-encoded on transport and saved to `cir.bin` plus `cir_index.csv`.
-

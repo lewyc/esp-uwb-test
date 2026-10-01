@@ -13,6 +13,7 @@
 
 #define FRAME_LEN 64
 #define PAYLOAD 14
+#define MODE_OFFSET 44
 #define POLL 1
 #define RESPONSE 2
 #define FINAL 3
@@ -21,7 +22,9 @@
 #define REPLY_UUS 5000
 #define ERROR_BITS (SYS_STATUS_ALL_RX_ERR|SYS_STATUS_ALL_RX_TO)
 static bool ready=false, listening=false;
-static int channel=5, ant_delay=16385;
+static int channel=5, tx_ant_delay=16385, rx_ant_delay=16385;
+typedef enum { TS_IPATOV_ADJUSTED=0, TS_STANDARD_ADJUSTED=1, TS_RAW_UNADJUSTED=2 } timestamp_mode_t;
+static timestamp_mode_t timestamp_mode=TS_IPATOV_ADJUSTED;
 static uint8_t frame_seq=0;
 static uint32_t last_packet[256];
 static uint32_t packet_duplicates=0,packet_count=0,rx_errors=0;
@@ -42,10 +45,24 @@ static uint32_t get32(const uint8_t *p) { uint32_t v=0;for(int i=3;i>=0;i--)v=(v
 static void put40(uint8_t *p,uint64_t v) { for(int i=0;i<5;i++)p[i]=v>>(i*8); }
 static uint64_t get40(const uint8_t *p) { uint64_t v=0;for(int i=4;i>=0;i--)v=(v<<8)|p[i];return v; }
 static uint64_t tx_time(void) { uint8_t b[5];dwt_readtxtimestamp(b);return get40(b); }
-static uint64_t rx_time(void) { uint8_t b[5];dwt_readrxtimestamp_ipatov(b);return get40(b); }
+static const char *timestamp_mode_name(void) {
+    switch(timestamp_mode) {
+        case TS_STANDARD_ADJUSTED:return "standard_adjusted";
+        case TS_RAW_UNADJUSTED:return "raw_unadjusted";
+        default:return "ipatov_adjusted";
+    }
+}
+static uint64_t rx_time(void) {
+    uint8_t b[5];
+    if(timestamp_mode==TS_STANDARD_ADJUSTED)dwt_readrxtimestamp(b,DWT_COMPAT_NONE);
+    else if(timestamp_mode==TS_RAW_UNADJUSTED)dwt_readrxtimestampunadj(b);
+    else dwt_readrxtimestamp_ipatov(b);
+    return get40(b);
+}
 static void make_frame(uint8_t *b,int type,uint16_t peer,uint32_t exchange) {
     memset(b,0,FRAME_LEN); b[0]=0x41;b[1]=0x88;b[2]=frame_seq++;
     put16(b+3,0xdeca);put16(b+5,peer);put16(b+7,node_id);b[9]=type;put32(b+10,exchange);
+    b[MODE_OFFSET]=(uint8_t)timestamp_mode;
 }
 static void rx_start(void) { dwt_setrxtimeout(0);dwt_rxenable(DWT_START_RX_IMMEDIATE); }
 static bool wait_status(uint32_t wanted,int ms) {
@@ -75,7 +92,9 @@ static bool receive_frame(uint8_t *b,int type,uint16_t peer,uint32_t ex) {
         uint8_t rng;int n=dwt_getframelength(&rng);
         if(n==FRAME_LEN) {
             dwt_readrxdata(b,FRAME_LEN,0);
-            if(b[0]==0x41 && b[1]==0x88 && get16(b+3)==0xdeca && get16(b+5)==node_id && get16(b+7)==peer && b[9]==type && get32(b+10)==ex)return true;
+            if(b[0]==0x41 && b[1]==0x88 && get16(b+3)==0xdeca && get16(b+5)==node_id &&
+               get16(b+7)==peer && b[9]==type && get32(b+10)==ex &&
+               b[MODE_OFFSET]==(uint8_t)timestamp_mode)return true;
         }
         rx_start();
     }
@@ -132,7 +151,7 @@ static bool initialise(void) {
     uwb_hal_fast();phy.chan=channel;
     if(dwt_configure(&phy)!=DWT_SUCCESS) {last_error="configure_failed";return false;}
     dwt_txconfig_t txrf={.PGdly=0x34,.power=0xfdfdfdfd,.PGcount=0};dwt_configuretxrf(&txrf);
-    dwt_setrxantennadelay(ant_delay);dwt_settxantennadelay(ant_delay);
+    dwt_setrxantennadelay(rx_ant_delay);dwt_settxantennadelay(tx_ant_delay);
     dwt_configciadiag(DW_CIA_DIAG_LOG_ALL);dwt_configeventcounters(1);
     dwt_setinterrupt(DWT_INT_RXFCG_BIT_MASK|DWT_INT_TXFRS_BIT_MASK|ERROR_BITS,0,DWT_ENABLE_INT_ONLY);
     dwt_writesysstatuslo(0xffffffff);ready=true;last_error="ok";return true;
@@ -146,7 +165,9 @@ static void information(cJSON *e) {
     str(e,"board","esp32s3_devkitc");
 #endif
     cJSON_AddBoolToObject(e,"radio_ready",ready);num(e,"device_id",ready?dwt_readdevid():0);
-    num(e,"channel",channel);num(e,"antenna_delay",ant_delay);num(e,"spi_mhz",CONFIG_UWB_SPI_MHZ);
+    num(e,"channel",channel);num(e,"antenna_delay",tx_ant_delay);num(e,"tx_antenna_delay",tx_ant_delay);
+    num(e,"rx_antenna_delay",rx_ant_delay);str(e,"timestamp_mode",timestamp_mode_name());
+    num(e,"spi_mhz",CONFIG_UWB_SPI_MHZ);
     num(e,"preamble_symbols",128);num(e,"preamble_code",9);num(e,"data_rate_mbps",6.8);
     num(e,"sfd_type",1);num(e,"sfd_timeout",129);num(e,"reply_uus",REPLY_UUS);num(e,"tx_power",0xfdfdfdfd);
     str(e,"sts","off");str(e,"phr","standard");num(e,"cir_hz",cir_hz);
@@ -167,7 +188,7 @@ static void initiate(uint16_t peer,uint32_t ex,cJSON *e) {
     if(!send_frame(b,false,0,true))goto done;
     t[0]=tx_time();
     if(!receive_frame(b,RESPONSE,peer,ex))goto done;
-    t[3]=rx_time();uint64_t delayed=delayed_time(t[3]);t[4]=(delayed+ant_delay)&TS_MASK;
+    t[3]=rx_time();uint64_t delayed=delayed_time(t[3]);t[4]=(delayed+tx_ant_delay)&TS_MASK;
     make_frame(b,FINAL,peer,ex);put40(b+PAYLOAD,t[0]);put40(b+PAYLOAD+5,t[3]);put40(b+PAYLOAD+10,t[4]);
     if(!send_frame(b,true,delayed,true))goto done;
     if(tx_time()!=t[4]) {last_error="tx_timestamp_mismatch";goto done;}
@@ -177,6 +198,7 @@ static void initiate(uint16_t peer,uint32_t ex,cJSON *e) {
     if(!isfinite(distance)) {last_error="invalid_timestamps";goto done;}
     num(e,"range_m",distance);str(e,"status","ok");
     cJSON *times=cJSON_AddArrayToObject(e,"timestamps_dtu");for(int i=0;i<6;i++)cJSON_AddItemToArray(times,cJSON_CreateNumber(t[i]));
+    str(e,"timestamp_mode",timestamp_mode_name());num(e,"tx_antenna_delay",tx_ant_delay);num(e,"rx_antenna_delay",rx_ant_delay);
     diagnostics(e);return;
 done:
     num(e,"range_m",NAN);num(e,"rx_power_dbm",NAN);num(e,"first_path_power_dbm",NAN);
@@ -191,7 +213,8 @@ static void responder(void) {
     uint8_t b[FRAME_LEN],rng;int n=dwt_getframelength(&rng);
     if(n!=FRAME_LEN) {rx_start();return;}
     dwt_readrxdata(b,FRAME_LEN,0);
-    if(b[0]!=0x41 || b[1]!=0x88 || get16(b+3)!=0xdeca || get16(b+5)!=node_id) {rx_start();return;}
+    if(b[0]!=0x41 || b[1]!=0x88 || get16(b+3)!=0xdeca || get16(b+5)!=node_id ||
+       b[MODE_OFFSET]!=(uint8_t)timestamp_mode) {rx_start();return;}
     uint16_t peer=get16(b+7);uint32_t ex=get32(b+10);
     if(b[9]==PACKET) {
         bool dup=peer<256 && last_packet[peer]==ex;
@@ -217,6 +240,15 @@ static int integer(cJSON *j,const char *key,int fallback,int lo,int hi) {
     if(!cJSON_IsNumber(v)||v->valuedouble<lo||v->valuedouble>hi||floor(v->valuedouble)!=v->valuedouble)return -1;
     return v->valueint;
 }
+static int parse_timestamp_mode(cJSON *j,timestamp_mode_t fallback) {
+    cJSON *v=cJSON_GetObjectItemCaseSensitive(j,"timestamp_mode");
+    if(!v)return fallback;
+    if(!cJSON_IsString(v))return -1;
+    if(!strcmp(v->valuestring,"ipatov_adjusted"))return TS_IPATOV_ADJUSTED;
+    if(!strcmp(v->valuestring,"standard_adjusted"))return TS_STANDARD_ADJUSTED;
+    if(!strcmp(v->valuestring,"raw_unadjusted"))return TS_RAW_UNADJUSTED;
+    return -1;
+}
 static void handle(cJSON *j) {
     int req=cJSON_GetObjectItem(j,"request")->valueint;
     const char *cmd=cJSON_GetObjectItem(j,"cmd")->valuestring;
@@ -227,11 +259,19 @@ static void handle(cJSON *j) {
     if(!strcmp(cmd,"hello")||!strcmp(cmd,"health")) information(ack);
     else if(!strcmp(cmd,"reset")) {listening=false;status=initialise()?"ok":last_error;information(ack);}
     else if(!strcmp(cmd,"configure")) {
-        int id=integer(j,"node",node_id,1,254),ch=integer(j,"channel",channel,5,9),ad=integer(j,"antenna_delay",ant_delay,0,65535);
+        int legacy=integer(j,"antenna_delay",tx_ant_delay,0,65535);
+        int id=integer(j,"node",node_id,1,254),ch=integer(j,"channel",channel,5,9);
+        int txad=integer(j,"tx_antenna_delay",legacy,0,65535);
+        int rxad=integer(j,"rx_antenna_delay",legacy,0,65535);
+        int mode=parse_timestamp_mode(j,timestamp_mode);
         cJSON *cir=cJSON_GetObjectItem(j,"cir_hz");
-        if(id<0||(ch!=5&&ch!=9)||ad<0||(cir&&(!cJSON_IsNumber(cir)||!isfinite(cir->valuedouble)||cir->valuedouble<0||cir->valuedouble>10))) {status="invalid_config";goto out;}
-        node_id=id;channel=ch;ant_delay=ad;cir_hz=cir?cir->valuedouble:0;listening=false;
-        nvs_handle_t h;ESP_ERROR_CHECK(nvs_open("uwb",NVS_READWRITE,&h));nvs_set_u16(h,"node",node_id);nvs_set_u16(h,"channel",channel);nvs_set_u16(h,"ant",ant_delay);nvs_commit(h);nvs_close(h);
+        if(id<0||(ch!=5&&ch!=9)||legacy<0||txad<0||rxad<0||mode<0||(cir&&(!cJSON_IsNumber(cir)||!isfinite(cir->valuedouble)||cir->valuedouble<0||cir->valuedouble>10))) {status="invalid_config";goto out;}
+        node_id=id;channel=ch;tx_ant_delay=txad;rx_ant_delay=rxad;timestamp_mode=(timestamp_mode_t)mode;
+        cir_hz=cir?cir->valuedouble:0;listening=false;
+        nvs_handle_t h;ESP_ERROR_CHECK(nvs_open("uwb",NVS_READWRITE,&h));nvs_set_u16(h,"node",node_id);
+        nvs_set_u16(h,"channel",channel);nvs_set_u16(h,"ant",tx_ant_delay);
+        nvs_set_u16(h,"tx_ant",tx_ant_delay);nvs_set_u16(h,"rx_ant",rx_ant_delay);
+        nvs_set_u8(h,"ts_mode",(uint8_t)timestamp_mode);nvs_commit(h);nvs_close(h);
         status=initialise()?"ok":last_error;information(ack);
     } else if(!strcmp(cmd,"listen")) {if(!ready)status="radio_not_ready";else {listening=true;dwt_forcetrxoff();dwt_writesysstatuslo(0xffffffff);rx_start();}}
     else if(!strcmp(cmd,"stop")) {listening=false;if(ready)dwt_forcetrxoff();}
@@ -261,8 +301,15 @@ out:
     str(ack,"status",status);emit(ack);
 }
 void radio_task(void *unused) {
-    nvs_handle_t h;uint16_t v;
-    if(nvs_open("uwb",NVS_READONLY,&h)==ESP_OK) {if(nvs_get_u16(h,"channel",&v)==ESP_OK)channel=v;if(nvs_get_u16(h,"ant",&v)==ESP_OK)ant_delay=v;nvs_close(h);}
+    nvs_handle_t h;uint16_t v;uint8_t mode;
+    if(nvs_open("uwb",NVS_READONLY,&h)==ESP_OK) {
+        if(nvs_get_u16(h,"channel",&v)==ESP_OK)channel=v;
+        if(nvs_get_u16(h,"ant",&v)==ESP_OK)tx_ant_delay=rx_ant_delay=v;
+        if(nvs_get_u16(h,"tx_ant",&v)==ESP_OK)tx_ant_delay=v;
+        if(nvs_get_u16(h,"rx_ant",&v)==ESP_OK)rx_ant_delay=v;
+        if(nvs_get_u8(h,"ts_mode",&mode)==ESP_OK && mode<=TS_RAW_UNADJUSTED)timestamp_mode=(timestamp_mode_t)mode;
+        nvs_close(h);
+    }
     bool math_ok=twr_math_selftest();
     esp_err_t rc=math_ok?uwb_hal_init(xTaskGetCurrentTaskHandle()):ESP_FAIL;
     if(!math_ok)last_error="twr_math_selftest_failed";

@@ -98,6 +98,7 @@ python tools/uwb_test.py provision serial:COM6 --ssid YOUR_ACCESS_POINT
 | `packet` | numbered packet TX/RX, duplicate, CRC, timeout and failure counters |
 | `range` | DS-TWR timestamps, range, exchange duration and diagnostics |
 | `static` | guided measured-distance stations, raw and calibrated results |
+| `calibration` | interactive multi-station fitting, held-out validation and offline filter comparison |
 | `orientation` | labelled antenna-angle runs |
 | `nlos` | labelled obstruction/material runs |
 | `rate` | request-rate and timing/completion comparison |
@@ -114,6 +115,33 @@ For repeatable noninteractive runs, copy a JSON file under `configs` and run:
 python tools/uwb_test.py run configs/static.example.json
 ```
 
+## Guided multi-distance calibration
+
+Flash the updated firmware to both nodes, measure distances between the antenna
+reference points, and start:
+
+~~~powershell
+python tools/uwb_test.py calibrate serial:COM11 serial:COM12
+~~~
+
+The wizard verifies matching radios, collects one station at a time, preserves
+warm-up and failed attempts, supports held-out validation stations, and produces
+baseline, constant-offset and scale-plus-offset comparisons. It also evaluates
+offline median/Hampel filtering without changing raw measurements.
+
+Use at least two well-separated fitting distances and preferably a separate
+validation distance. A run with no independent validation set is explicitly
+reported as exploratory. See [the calibration guide](docs/CALIBRATION.md) for the
+full beginner workflow, output files, timestamp-mode comparison and limitations.
+The timing interpretation, robust position-solver option and explicitly deferred
+nonblocking device scheduler are described in
+[scheduling and positioning follow-up](docs/SCHEDULING_AND_POSITIONING.md).
+For a repeatable simulated run:
+
+~~~powershell
+python tools/uwb_test.py run configs/calibration.example.json
+~~~
+
 ## Results
 
 The laptop opens the run directory before commanding measurements. Every run gets a non-overwriting folder under `logs/YYYYMMDD-HHMMSS-stage-id` containing:
@@ -124,6 +152,9 @@ The laptop opens the run directory before commanding measurements. Every run get
 - `positions.csv`: anchor-position solutions and error where truth exists
 - `summary.json` and `report.md`: completion and error statistics
 - `cir.bin` and `cir_index.csv`: optional indexed CIR captures
+- Calibration runs additionally create `calibration_stations.json`,
+  `calibration_result.json`, `calibration_report.md` and
+  `filter_analysis.json`.
 
 Logs flush and sync at least once per second and finalize on Ctrl+C. The ESP32 queue only absorbs short delays; overflow/disconnect/restart is recorded as an explicit gap. Host receipt time remains separate from radio and device time.
 

@@ -106,6 +106,8 @@ class SimNode:
         self.endpoint, self.network, self.node_id = endpoint, network, node_id
         self.boot = network.random.randrange(1, 2**32); self.seq = 0; self.request_seq = 0
         self.listening = False; self.channel = 5
+        self.tx_antenna_delay = 16385; self.rx_antenna_delay = 16385
+        self.timestamp_mode = "ipatov_adjusted"
         self.network.nodes[node_id] = self
 
     def execute(self, command: dict, timeout: float = 5.0) -> list[dict]:
@@ -114,6 +116,10 @@ class SimNode:
         cmd = command["cmd"]; request = command.get("request", self.request_seq); events = []
         if cmd == "configure":
             old = self.node_id; self.node_id = int(command.get("node", old)); self.channel = int(command.get("channel", 5))
+            fallback = int(command.get("antenna_delay", 16385))
+            self.tx_antenna_delay = int(command.get("tx_antenna_delay", fallback))
+            self.rx_antenna_delay = int(command.get("rx_antenna_delay", fallback))
+            self.timestamp_mode = str(command.get("timestamp_mode", "ipatov_adjusted"))
             self.network.nodes.pop(old, None); self.network.nodes[self.node_id] = self
         elif cmd == "listen": self.listening = True
         elif cmd == "stop": self.listening = False
@@ -124,14 +130,20 @@ class SimNode:
             value = true + self.network.settings.bias_m + self.network.random.gauss(0, self.network.settings.sigma_m) if ok else None
             events.append(self._event("measurement", request=request, exchange=request, peer=peer, status="ok" if ok else "timeout",
                 range_m=value, exchange_ms=self.network.random.uniform(2.5, 5.0), rx_power_dbm=-65.0 if ok else None,
-                first_path_power_dbm=-68.0 if ok else None, clock_offset_raw=42 if ok else None))
+                first_path_power_dbm=-68.0 if ok else None, first_path_index=742.5 if ok else None,
+                clock_offset_raw=42 if ok else None, timestamp_mode=self.timestamp_mode,
+                timestamps_dtu=[100, 120, 150, 200, 230, 250] if ok else None,
+                tx_antenna_delay=self.tx_antenna_delay, rx_antenna_delay=self.rx_antenna_delay))
         elif cmd == "packet":
             peer = int(command["peer"]); other = self.network.nodes.get(peer)
             status = "ok" if other and other.listening else "timeout"
             events.append(self._event("packet_tx", request=request, peer=peer, exchange=request, status=status))
             if status == "ok": other._pending.append(other._event("packet_rx", peer=self.node_id, exchange=request, duplicate=False))
         events.append(self._event("ack", request=request, status="ok", radio_ready=True, device_id=0xDECA0302,
-                                  channel=self.channel, firmware="sim-0.1", board="simulated"))
+                                  channel=self.channel, firmware="sim-0.2", driver_revision="simulated",
+                                  board="simulated", timestamp_mode=self.timestamp_mode,
+                                  tx_antenna_delay=self.tx_antenna_delay,
+                                  rx_antenna_delay=self.rx_antenna_delay))
         return events
 
     _pending: list[dict]
